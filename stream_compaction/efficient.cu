@@ -15,10 +15,58 @@ namespace StreamCompaction {
         /**
          * Performs prefix-sum (aka scan) on idata, storing the result into odata.
          */
+
+        __global__ void kernUpSweep(int N, int* odata, int d) {
+            int k = blockIdx.x * blockDim.x + threadIdx.x;
+            if (k >= N) {
+                return;
+            }
+            if (k % (1 << (d + 1)) == 0) {
+                odata[k + (1 << (d + 1)) - 1] += odata[k + (1 << d) - 1];
+            }
+        }
+
+        __global__ void kernDownSweep(int N, int* odata, int d) {
+            int k = blockIdx.x * blockDim.x + threadIdx.x;
+            if (k >= N) {
+                return;
+            }
+            if (k % (1 << (d + 1)) == 0) {
+                int t = odata[k + (1 << d) - 1];
+                //odata[k + (1 << d) - 1] = odata[k + (1 << (d + 1)) - 1];  // Set left child to this node¡¯s value
+                odata[k + (1 << (d + 1)) - 1] += t;
+            }
+        }
+
         void scan(int n, int *odata, const int *idata) {
-            timer().startGpuTimer();
-            // TODO
-            timer().endGpuTimer();
+            
+            int* dev_odata;
+            int log2N = ilog2ceil(n);
+            int N = (1 << log2N);
+            int threadsPerBlock = 32;
+            int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+            cudaMalloc(&dev_odata, N * sizeof(int));
+            cudaMemset(dev_odata, 0, N * sizeof(int));
+            cudaMemcpy(dev_odata, idata, n * sizeof(int), cudaMemcpyHostToDevice);
+            //timer().startGpuTimer();
+            // Up-Sweep
+            for (int d = 0; d < log2N; d++) {
+                kernUpSweep <<< blocksPerGrid, threadsPerBlock >>> (N, dev_odata, d);
+                cudaDeviceSynchronize();
+                checkCUDAError("kernUpSweep");
+            }
+
+            // Down-Sweep
+            cudaMemset(dev_odata + (N - 1), 0, sizeof(int));
+            for (int d = log2N - 1; d >= 0; d--) {
+                kernDownSweep <<< blocksPerGrid, threadsPerBlock >>> (N, dev_odata, d);
+                cudaDeviceSynchronize();
+                checkCUDAError("kernDownSweep");
+            }
+            //timer().endGpuTimer();
+            cudaMemcpy(odata, dev_odata, n * sizeof(int), cudaMemcpyDeviceToHost);
+
+            cudaFree(dev_odata);
         }
 
         /**
