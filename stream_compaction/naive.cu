@@ -4,6 +4,9 @@
 #include "naive.h"
 
 
+#define threadsPerBlock 256
+
+
 namespace StreamCompaction {
     namespace Naive {
         using StreamCompaction::Common::PerformanceTimer;
@@ -37,7 +40,6 @@ namespace StreamCompaction {
             cudaMemcpy(dev_odata, idata, n * sizeof(int), cudaMemcpyHostToDevice);
 
             timer().startGpuTimer();
-            int threadsPerBlock = 32;
             int blocksPerGrid = (n + threadsPerBlock - 1) / threadsPerBlock;
 
             for (int d = 1; d <= ilog2ceil(n); d++) {
